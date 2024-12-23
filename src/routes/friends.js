@@ -5,7 +5,6 @@ const User = require("../models/User");
 const router = express.Router();
 
 // Запрос на добавление друга
-// Запрос на добавление друга
 router.post("/request", async (req, res) => {
   const { telegramId, friendUsername } = req.body;
 
@@ -73,9 +72,10 @@ router.post("/request", async (req, res) => {
 // Обновление статуса запроса
 router.post("/update", async (req, res) => {
   const { userId, friendId, status } = req.body;
+  console.log("userId:", userId, "friendId:", friendId, "status:", status);
 
   try {
-    // Находим запрос с любым порядком userId и friendId
+    // Найти запрос в обоих направлениях
     const request = await Friend.findOne({
       where: {
         [Op.or]: [
@@ -91,11 +91,11 @@ router.post("/update", async (req, res) => {
         .json({ error: "Friend request not found or already processed" });
     }
 
-    // Обновляем статус
+    // Обновить статус запроса
     request.status = status;
     await request.save();
 
-    res.json({ message: "Friend request updated", request });
+    res.json({ message: "Friend request updated successfully", request });
   } catch (error) {
     console.error("Ошибка обновления запроса:", error);
     res.status(500).json({ error: "Failed to update friend request" });
@@ -113,7 +113,7 @@ router.get("/:telegramId", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Получаем всех друзей с подтвержденным статусом
+    // Получаем друзей пользователя
     const friends = await Friend.findAll({
       where: {
         [Op.or]: [
@@ -124,11 +124,18 @@ router.get("/:telegramId", async (req, res) => {
       include: [
         {
           model: User,
-          as: "User", // Ассоциация должна быть настроена
+          as: "Requester", // Пользователь, отправивший запрос
+          attributes: ["id", "username", "telegramId"],
+        },
+        {
+          model: User,
+          as: "Receiver", // Пользователь, принявший запрос
           attributes: ["id", "username", "telegramId"],
         },
       ],
     });
+
+    console.log("Friends: ", JSON.stringify(friends, null, 2));
 
     res.json(friends);
   } catch (error) {
@@ -137,29 +144,45 @@ router.get("/:telegramId", async (req, res) => {
   }
 });
 
+
 // Удаление друга
-router.delete("/:userId/:friendId", async (req, res) => {
-  const { userId, friendId } = req.params;
+router.delete("/", async (req, res) => {
+  const { userId, friendTelegramId } = req.body;
+
   try {
-    const result = await Friend.destroy({
+    // Находим ID пользователя и друга
+    const user = await User.findOne({ where: { telegramId: userId } });
+    const friend = await User.findOne({ where: { telegramId: friendTelegramId } });
+
+    if (!user || !friend) {
+      return res.status(404).json({ error: "User or friend not found" });
+    }
+
+    // Удаляем запись о дружбе/запросе
+    const friendship = await Friend.findOne({
       where: {
         [Op.or]: [
-          { userId, friendId },
-          { userId: friendId, friendId: userId },
+          { userId: user.id, friendId: friend.id, status: "pending" },
+          { userId: friend.id, friendId: user.id, status: "pending" },
         ],
       },
     });
 
-    if (!result) {
-      return res.status(404).json({ error: "Friend not found" });
+    if (!friendship) {
+      return res.status(404).json({ error: "Friend request not found" });
     }
 
-    res.json({ message: "Friend removed" });
+    await friendship.destroy();
+
+    res.json({ success: true, message: "Friend request deleted successfully" });
   } catch (error) {
-    console.error("Ошибка удаления друга:", error);
-    res.status(500).json({ error: "Failed to remove friend" });
+    console.error("Ошибка при удалении запроса:", error);
+    res.status(500).json({ error: "Failed to delete friend request" });
   }
 });
+
+
+
 
 // Получение входящих заявок
 router.get("/requests/:telegramId", async (req, res) => {
@@ -177,15 +200,16 @@ router.get("/requests/:telegramId", async (req, res) => {
       include: [
         {
           model: User,
-          as: "User", // Ассоциация на отправителя запроса
+          as: "Requester", // Ассоциация на отправителя запроса
           attributes: ["id", "username"],
         },
       ],
     });
 
+    // Форматируем результат
     const formattedRequests = requests.map((request) => ({
-      userId: request.User.id,
-      username: request.User.username,
+      userId: request.Requester.id,
+      username: request.Requester.username,
     }));
 
     res.json(formattedRequests);
@@ -194,5 +218,6 @@ router.get("/requests/:telegramId", async (req, res) => {
     res.status(500).json({ error: "Failed to get friend requests" });
   }
 });
+
 
 module.exports = router;

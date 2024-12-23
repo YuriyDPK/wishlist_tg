@@ -40,6 +40,8 @@ router.post("/", async (req, res) => {
 // Получение пользователя по Telegram ID
 router.get("/:telegramId", async (req, res) => {
   try {
+    console.log('req.params.telegramId: ' + req.params.telegramId);
+    
     const user = await User.findOne({
       where: { telegramId: req.params.telegramId },
     });
