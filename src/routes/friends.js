@@ -145,25 +145,65 @@ router.get("/:telegramId", async (req, res) => {
 });
 
 
-// Удаление друга
+// Отклонить заявку
 router.delete("/", async (req, res) => {
   const { userId, friendTelegramId } = req.body;
 
   try {
-    // Находим ID пользователя и друга
-    const user = await User.findOne({ where: { telegramId: userId } });
-    const friend = await User.findOne({ where: { telegramId: friendTelegramId } });
-
-    if (!user || !friend) {
+   
+    if (!userId || !friendTelegramId) {
       return res.status(404).json({ error: "User or friend not found" });
     }
-
+    console.log('userId: ' + userId);
+    console.log('friendTelegramId: ' + friendTelegramId);
+    
     // Удаляем запись о дружбе/запросе
     const friendship = await Friend.findOne({
       where: {
         [Op.or]: [
-          { userId: user.id, friendId: friend.id, status: "pending" },
-          { userId: friend.id, friendId: user.id, status: "pending" },
+          { userId: userId, friendId: friendTelegramId },
+          { userId: friendTelegramId, friendId: userId },
+        ],
+      },
+    });
+
+    if (!friendship) {
+      return res.status(404).json({ error: "Friend request not found" });
+    }
+
+    await friendship.destroy();
+
+    res.json({ success: true, message: "Friend request deleted successfully" });
+  } catch (error) {
+    console.error("Ошибка при удалении запроса:", error);
+    res.status(500).json({ error: "Failed to delete friend request" });
+  }
+});
+
+// Удаление друга
+router.delete("/delete/", async (req, res) => {
+  const { userId, friendTelegramId } = req.body;
+
+  try {
+    const userRespone = await User.findOne({
+      where: { telegramId: userId },
+    });
+
+    const friendResponce = await User.findOne({
+      where: { telegramId: friendTelegramId },
+    });
+    if (!userRespone || !friendResponce) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    console.log('userId: ' + userRespone.id);
+    console.log('friendId: ' + friendResponce.id);
+    
+    // Удаляем запись о дружбе/запросе
+    const friendship = await Friend.findOne({
+      where: {
+        [Op.or]: [
+          { userId: userRespone.id, friendId: friendResponce.id },
+          { userId: friendResponce.id, friendId: userRespone.id },
         ],
       },
     });

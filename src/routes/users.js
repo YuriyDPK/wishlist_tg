@@ -61,4 +61,29 @@ router.get("/:telegramId", async (req, res) => {
   }
 });
 
+// Получение пользователя по Telegram ID
+router.get("/getTelegramId/:id", async (req, res) => {
+  try {
+    console.log('req.params.id: ' + req.params.id);
+    
+    const user = await User.findOne({
+      where: { id: req.params.id },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    console.log('user.telegramId: '+ user.telegramId);
+    
+    res.json({
+      id: user.id,
+      telegramId: user.telegramId,
+      username: user.username,
+    });
+  } catch (error) {
+    console.error("Ошибка получения пользователя:", error);
+    res.status(500).json({ error: "Failed to get user" });
+  }
+});
+
 module.exports = router;

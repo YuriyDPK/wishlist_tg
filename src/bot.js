@@ -86,7 +86,7 @@ bot.hears("👀 Вишлист друга", async (ctx) => {
     ctx.reply(
       `Ваши друзья:\n${friendList}\n\nВведите номер друга для просмотра его вишлиста.`
     );
-    console.log('telegramId: ' + telegramId);
+    // console.log('telegramId: ' + telegramId);
     
     // Сохраняем состояние для обработки выбора друга
     state[telegramId] = { viewingFriendWishlist: true, friends };
@@ -103,11 +103,14 @@ bot.hears("📥 Заявки в друзья", async (ctx) => {
       `http://localhost:3000/api/friends/requests/${ctx.message.from.id}`
     );
     const requests = response.data;
-
+    
+    // console.log('ctx.message.from.id: ' + ctx.message.from.id);
+    
     if (requests.length === 0) {
       ctx.reply("Нет входящих заявок в друзья.");
     } else {
       for (const request of requests) {
+        console.log('userId: ' + request.userId);
         await ctx.reply(
           `Пользователь ${request.username} хочет добавить вас в друзья.`,
           Markup.inlineKeyboard([
@@ -277,12 +280,12 @@ bot.hears("❌ Удалить из вишлиста", async (ctx) => {
 // });
 
 bot.action(/accept_friend_(.+)/, async (ctx) => {
-  const  friendTelegramId =Number(ctx.match[1]); // ID друга 
+  const friendId = Number(ctx.match[1]); // ID друга 
   const telegramId = ctx.callbackQuery.from.id; // ID пользователя 
   
   console.log("Принятие запроса:", {
     telegramId,
-    friendTelegramId,
+    friendId,
   });
 
   try {
@@ -290,15 +293,15 @@ bot.action(/accept_friend_(.+)/, async (ctx) => {
     const userResponse = await axios.get(
       `http://localhost:3000/api/users/${telegramId}`
     );
-    // const friendResponse = await axios.get(
-    //   `http://localhost:3000/api/users/${friendTelegramId}`
-    // );
+    // Получение Telegram ID пользователя
+    const friendResponse = await axios.get(
+      `http://localhost:3000/api/users/getTelegramId/${friendId}`
+    );
 
     const userId = userResponse.data.id;
-    // const friendId = friendResponse.data.id;
-    const friendId = friendTelegramId;
+    const friendTelegramId = friendResponse.data.telegramId;
 
-    console.log("IDs для обновления:", { userId, friendId });
+    console.log("IDs для обновления:", {friendId, userId, friendId, friendTelegramId });
 
     // Отправка запроса на обновление
     await axios.post("http://localhost:3000/api/friends/update", {
@@ -306,10 +309,11 @@ bot.action(/accept_friend_(.+)/, async (ctx) => {
       friendId,
       status: "accepted",
     });
-
+    console.log('friendTelegramId: ' + friendTelegramId);
+    
     // Уведомление об успешном добавлении
     await bot.telegram.sendMessage(
-      telegramId,
+      friendTelegramId,
       "Ваш запрос на добавление в друзья был принят!"
     );
     ctx.reply("Запрос принят.");
@@ -322,12 +326,20 @@ bot.action(/accept_friend_(.+)/, async (ctx) => {
 bot.action(/reject_friend_(.+)/, async (ctx) => {
   const friendTelegramId = Number(ctx.match[1]); // ID друга
   const telegramId = ctx.callbackQuery.from.id; // ID пользователя
-
+  // console.log('friendTelegramId: ' + friendTelegramId);
+  // console.log('telegramId: ' + telegramId);
+  
   try {
+     // Получение ID пользователя
+     const userResponse = await axios.get(
+      `http://localhost:3000/api/users/${telegramId}`
+    );
+    const userId = userResponse.data.id;
+    // console.log('userId: ' + userId);
     // Удаляем запись о запросе дружбы
     await axios.delete("http://localhost:3000/api/friends", {
       data: {
-        userId: telegramId,
+        userId,
         friendTelegramId,
       },
     });
@@ -392,49 +404,63 @@ bot.on("text", async (ctx) => {
   }
 
   // 3. Проверяем, в состоянии ли пользователь "добавление друга"
-  if (state[userId]?.addingFriend) {
-    const friendUsername = userText;
+if (state[userId]?.addingFriend) {
+  let friendUsername = userText?.trim();
 
-    if (!friendUsername) {
-      ctx.reply("Укажите имя пользователя друга.");
-      return;
-    }
-
-    try {
-      const response = await axios.post(
-        "http://localhost:3000/api/friends/request",
-        {
-          telegramId: userId,
-          friendUsername,
-        }
-      );
-
-      if (response.data.request) {
-        const friendId = response.data.request.friendId;
-
-        bot.telegram.sendMessage(
-          friendId,
-          "Вас хотят добавить в друзья! Подтвердите запрос.",
-          Markup.inlineKeyboard([
-            Markup.button.callback("Да", `accept_friend_${userId}`),
-            Markup.button.callback("Нет", `reject_friend_${userId}`),
-          ])
-        );
-
-        ctx.reply("Запрос на добавление друга отправлен.");
-      } else {
-        ctx.reply("Ошибка при добавлении друга. Попробуйте позже.");
-      }
-    } catch (error) {
-      console.error(error);
-      ctx.reply(
-        "Ошибка при добавлении друга. Проверьте логин или повторите позже."
-      );
-    } finally {
-      delete state[userId];
-    }
+  if (!friendUsername) {
+    ctx.reply("Укажите имя пользователя друга.");
     return;
   }
+
+  // Удаляем символ '@' в начале логина, если он есть
+  if (friendUsername.startsWith('@')) {
+    friendUsername = friendUsername.slice(1); // Удаляем первый символ
+  }
+
+  try {
+    const response = await axios.post("http://localhost:3000/api/friends/request", {
+      telegramId: userId,
+      friendUsername,
+    });
+
+    if (response.data?.request) {
+      const friendId = response.data.request.friendId;
+     
+      
+      if (!friendId) {
+        ctx.reply("Не удалось найти друга. Проверьте логин.");
+        return;
+      }
+      console.log('здесь friendId: ' + friendId);
+      const friendResponse = await axios.get(
+        `http://localhost:3000/api/users/getTelegramId/${friendId}`
+      );
+      const friendTelegramId = friendResponse.data.telegramId;
+      console.log('здесь friendTelegramId: ' + friendTelegramId);
+      
+      bot.telegram.sendMessage(
+        friendTelegramId,
+        "Вас хотят добавить в друзья! Подтвердите запрос в заявках.",
+        // Markup.inlineKeyboard([
+        //   Markup.button.callback("Да", `accept_friend_${userId}`),
+        //   Markup.button.callback("Нет", `reject_friend_${userId}`),
+        // ])
+      );
+
+      ctx.reply("Запрос на добавление друга отправлен.");
+    } else {
+      ctx.reply("Ошибка при добавлении друга. Попробуйте позже.");
+    }
+  } catch (error) {
+    console.error("Ошибка при добавлении друга:", error.message);
+    ctx.reply("Ошибка при добавлении друга. Проверьте логин или повторите позже.");
+  } finally {
+    delete state[userId];
+  }
+  return;
+}
+
+  
 
   // 4. Проверяем, в состоянии ли пользователь "просмотр вишлиста друга"
   if (state[userId]?.viewingFriendWishlist) {
@@ -498,9 +524,11 @@ bot.on("text", async (ctx) => {
         ? friend.Receiver.telegramId
         : friend.Requester.telegramId;
 
+          console.log('friendTelegramId: ' + friendTelegramId);
+          
     try {
       // Отправляем запрос на удаление друга
-      await axios.delete(`http://localhost:3000/api/friends`, {
+      await axios.delete(`http://localhost:3000/api/friends/delete`, {
         data: { userId, friendTelegramId },
       });
 
