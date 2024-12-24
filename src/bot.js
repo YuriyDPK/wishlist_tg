@@ -543,10 +543,56 @@ if (state[userId]?.addingFriend) {
     return;
   }
   
-  
+   // Если пользователь ввёл неизвестную команду
+   ctx.reply(
+    "Это нужно добавить в ваш вишлист?",
+    Markup.inlineKeyboard([
+      Markup.button.callback("Да", `add_to_wishlist_${userId}`),
+      Markup.button.callback("Нет", `cancel_action_${userId}`),
+    ])
+  );
+
+  // Сохраняем состояние для добавления в вишлист
+  state[userId] = { pendingWishlistItem: userText };
 
   // Если ни одно из состояний не подходит, отправляем сообщение об ошибке
-  ctx.reply("Неизвестная команда или неверный ввод. Попробуйте снова.");
+  // ctx.reply("Неизвестная команда или неверный ввод. Попробуйте снова.");
+});
+
+// Обработка действий при добавлении в вишлист
+bot.action(/add_to_wishlist_(.+)/, async (ctx) => {
+  const userId = ctx.match[1];
+  const wishlistItem = state[userId]?.pendingWishlistItem;
+
+  if (!wishlistItem) {
+    ctx.reply("Ошибка: не удалось определить элемент для добавления.");
+    return;
+  }
+
+  try {
+    const response = await axios.post("http://localhost:3000/api/wishlist", {
+      userId,
+      text: wishlistItem,
+    });
+
+    if (response.data.item) {
+      ctx.reply("Элемент успешно добавлен в ваш вишлист.");
+    } else {
+      ctx.reply("Ошибка: элемент не был добавлен.");
+    }
+  } catch (error) {
+    console.error(error);
+    ctx.reply("Ошибка при добавлении в вишлист.");
+  } finally {
+    delete state[userId]; // Сбрасываем состояние
+  }
+});
+
+// Отмена действия
+bot.action(/cancel_action_(.+)/, (ctx) => {
+  const userId = ctx.match[1];
+  delete state[userId]?.pendingWishlistItem; // Убираем сохранённый текст
+  ctx.reply("Действие отменено.");
 });
 
 // Запуск бота
